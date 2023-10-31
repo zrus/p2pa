@@ -22,16 +22,18 @@ pub struct Behaviour {
   backoff: ExponentialBackoff,
   event_queue: Vec<Event>,
   subsriptions: HashSet<String>,
+  enable_republish: bool,
 }
 
 impl Behaviour {
-  pub fn new(behaviour: gossipsub::Behaviour) -> Self {
+  pub fn new(behaviour: gossipsub::Behaviour, enable_republish: bool) -> Self {
     Self {
       gossip: behaviour,
       in_progress_messages: Default::default(),
       backoff: Default::default(),
       event_queue: Default::default(),
       subsriptions: Default::default(),
+      enable_republish,
     }
   }
 
@@ -47,7 +49,9 @@ impl Behaviour {
     let contents = contents.into();
     if let Err(e) = self.gossip.publish(topic.clone(), contents.clone()) {
       error!("publish error: {e}");
-      self.in_progress_messages.push_back((topic, contents));
+      if self.enable_republish {
+        self.in_progress_messages.push_back((topic, contents));
+      }
     }
   }
 
@@ -177,7 +181,7 @@ impl NetworkBehaviour for Behaviour {
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
   {
-    if self.backoff.is_expired() {
+    if self.enable_republish && self.backoff.is_expired() {
       let all_republished = self.drain_publish();
       self.backoff.start_next(all_republished);
     }

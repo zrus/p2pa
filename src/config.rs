@@ -23,6 +23,8 @@ pub struct Config {
   enable_dht: bool,
   #[builder(default)]
   enable_relay: bool,
+  #[builder(default)]
+  enable_republish: bool,
 }
 
 impl Config {
@@ -64,5 +66,9 @@ impl Config {
 
   pub fn enable_relay(&self) -> bool {
     self.enable_relay
+  }
+
+  pub fn enable_republish(&self) -> bool {
+    self.enable_republish
   }
 }

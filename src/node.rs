@@ -650,7 +650,7 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
         gossipsub::MessageAuthenticity::Signed(key.clone()),
         gossip_cfg,
       )?;
-      let gossip = gossip_bhv::Behaviour::new(gossip);
+      let gossip = gossip_bhv::Behaviour::new(gossip, config.enable_republish());
 
       let identify_cfg = identify::Config::new("/AumPoS/identify/1.0".to_owned(), key.public());
       let identify = identify::Behaviour::new(identify_cfg);
