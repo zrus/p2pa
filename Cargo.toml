@@ -1,0 +1,66 @@
+[package]
+name = "p2pa"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.tokio]
+version = "*"
+features = ["rt", "time", "sync", "macros", "rt-multi-thread", "signal", "tracing", "io-util", "io-std"] 
+
+[dependencies.tokio-stream]
+version = "*"
+
+[dependencies.futures]
+version = "*"
+
+[dependencies.ractor]
+version = "*"
+
+[dependencies.libp2p]
+git = "https://github.com/libp2p/rust-libp2p"
+features = ["full"]
+
+[dependencies.serde]
+version = "*"
+features = ["derive"]
+
+[dependencies.anyhow]
+version = "*"
+
+[dependencies.thiserror]
+version = "*"
+
+[dependencies.dashmap]
+version = "*"
+
+[dependencies.bincode]
+version = "*"
+
+[dependencies.rand]
+version = "*"
+
+[dependencies.void]
+version = "*"
+
+[dependencies.either]
+version = "*"
+
+[dependencies.log]
+version = "*"
+
+[dependencies.derive_builder]
+version = "*"
+
+[dependencies.trust-dns-proto]
+version = "*"
+features = ["dnssec"]
+
+[dev-dependencies.env_logger]
+version = "*"
+
+[dev-dependencies.clap]
+version = "*"
+features = ["derive"]
+
+[dev-dependencies.base64]
+version = "*"
