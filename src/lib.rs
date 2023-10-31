@@ -23,7 +23,9 @@ pub use events::Event;
 pub use message::Message;
 pub use node::Node;
 
-// Re-export tokio
+// Re-export
+pub use libp2p::identity::Keypair;
+pub use libp2p::{Multiaddr, PeerId};
 pub use tokio;
 
 pub mod prelude {
