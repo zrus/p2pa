@@ -536,7 +536,11 @@ impl NodeInner {
       }
       NodeBehaviourEvent::Dht(_) => None,
       NodeBehaviourEvent::Dcutr(dcutr) => {
-        if let dcutr::Event::DirectConnectionUpgradeSucceeded { remote_peer_id, .. } = dcutr {
+        if let dcutr::Event {
+          remote_peer_id,
+          result: Ok(_),
+        } = dcutr
+        {
           self
             .swarm
             .behaviour_mut()
