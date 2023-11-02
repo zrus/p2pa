@@ -16,7 +16,6 @@ use libp2p::{
   dcutr, gossipsub, identify,
   identity::Keypair,
   kad::{self, store::MemoryStore},
-  mdns,
   multiaddr::Protocol,
   noise, rendezvous,
   swarm::{behaviour::toggle::Toggle, SwarmEvent},
@@ -34,7 +33,6 @@ use crate::{
   },
   commands::Command,
   config::Config,
-  errors::Error,
   events::Event,
   prelude::*,
   utils::{
@@ -506,11 +504,13 @@ impl NodeInner {
         }
       },
       NodeBehaviourEvent::Mdns(mdns) => {
+        warn!("New peers found");
         match mdns {
-          mdns_bhv::Event::Discovered { peers } => {
+          mdns_bhv::Event::Discovered(peers) => {
             let peers = peers.into_iter().map(|p| p.0).collect::<Vec<_>>();
             self.swarm.behaviour_mut().gossip.add_explicit_peers(peers);
           }
+          _ => {}
         }
         None
       }
@@ -624,9 +624,8 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
       let peer_id = key.public().to_peer_id();
 
       let mdns = Toggle::from(if config.enable_mdns() {
-        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
-          .map_err(|e| Error::IoError(e))?;
-        let mdns = mdns_bhv::Behaviour::new(mdns);
+        let mdns_cfg = mdns_bhv::Config::default().service_name(config.mdns_service_name());
+        let mdns = mdns_bhv::Behaviour::new(mdns_cfg, peer_id)?;
         Some(mdns)
       } else {
         None

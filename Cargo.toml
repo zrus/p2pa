@@ -55,6 +55,19 @@ version = "*"
 version = "*"
 features = ["dnssec"]
 
+[dependencies.if-watch]
+version = "*"
+features = ["tokio"]
+
+[dependencies.smallvec]
+version = "*"
+
+[dependencies.socket2]
+version = "*"
+features = ["all"]
+
+# Develop dependencies
+
 [dev-dependencies.env_logger]
 version = "*"
 
