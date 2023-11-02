@@ -1,20 +1,18 @@
 use std::sync::Arc;
 
-use log::*;
 use p2pa::{prelude::*, ConfigBuilder, Event, Node};
 
 #[tokio::main]
 async fn main() -> Ret {
   env_logger::init();
   let config = ConfigBuilder::default()
-    // .enable_mdns(true)
-    .enable_rendezvous(true)
-    .enable_relay(true)
+    .enable_mdns(true)
+    // .enable_rendezvous(true)
+    // .enable_relay(true)
     // .enable_dht(true)
     .rendezvous_namespaces(vec![String::from("aumpos::global")])
     .rendezvous_ttl(30)
     .build()?;
-  info!("{config:?}");
   let node = Node::init(0usize, config).await?;
   let node = Arc::new(node);
   node.execute(|node, event| async move {
@@ -36,8 +34,8 @@ async fn main() -> Ret {
 
   node.subscribe("test")?;
   node.publish("test", "Hello")?;
-  node.subscribe("test-2");
-  node.publish("test-2", "Goodbye");
+  node.subscribe("test-2")?;
+  node.publish("test-2", "Goodbye")?;
 
   let mut buf = String::new();
   _ = std::io::stdin().read_line(&mut buf);
