@@ -624,6 +624,8 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
       let peer_id = key.public().to_peer_id();
 
       let mdns = Toggle::from(if config.enable_mdns() {
+        let mut cfg = mdns::Config::default();
+        cfg.query_interval = Duration::from_secs(10);
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
           .map_err(|e| Error::IoError(e))?;
         let mdns = mdns_bhv::Behaviour::new(mdns);
