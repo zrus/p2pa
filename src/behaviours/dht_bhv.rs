@@ -11,7 +11,7 @@ use libp2p::{
     self, store::MemoryStore, BootstrapError, BootstrapOk, GetClosestPeersOk, GetRecordOk,
     GetRecordResult, ProgressStep, PutRecordResult, QueryId, QueryResult, Quorum, Record,
   },
-  swarm::{NetworkBehaviour, ToSwarm},
+  swarm::{NetworkBehaviour, PollParameters, ToSwarm},
   Multiaddr, PeerId,
 };
 
@@ -344,7 +344,7 @@ impl NetworkBehaviour for Behaviour {
     )
   }
 
-  fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
+  fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
     self.kad_dht.on_swarm_event(event)
   }
 
@@ -362,6 +362,7 @@ impl NetworkBehaviour for Behaviour {
   fn poll(
     &mut self,
     cx: &mut std::task::Context<'_>,
+    params: &mut impl PollParameters,
   ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
   {
     if matches!(self.bootstrap.state, State::NotStarted)
@@ -407,7 +408,7 @@ impl NetworkBehaviour for Behaviour {
       }
     }
 
-    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.kad_dht, cx) {
+    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.kad_dht, cx, params) {
       match ready {
         ToSwarm::GenerateEvent(event) => self.handle_event(event),
         ToSwarm::Dial { opts } => {

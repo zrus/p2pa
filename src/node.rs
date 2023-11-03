@@ -536,11 +536,7 @@ impl NodeInner {
       }
       NodeBehaviourEvent::Dht(_) => None,
       NodeBehaviourEvent::Dcutr(dcutr) => {
-        if let dcutr::Event {
-          remote_peer_id,
-          result: Ok(_),
-        } = dcutr
-        {
+        if let dcutr::Event::DirectConnectionUpgradeSucceeded { remote_peer_id } = dcutr {
           self
             .swarm
             .behaviour_mut()
@@ -613,7 +609,7 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
   let swarm = SwarmBuilder::with_existing_identity(identity.clone())
     .with_tokio()
     .with_tcp(
-      tcp::Config::default(),
+      tcp::Config::default().nodelay(true).port_reuse(true),
       noise::Config::new,
       yamux::Config::default,
     )?

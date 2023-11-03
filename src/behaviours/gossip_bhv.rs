@@ -5,7 +5,7 @@ use std::{
 
 use libp2p::{
   gossipsub::{self, IdentTopic, TopicHash},
-  swarm::{NetworkBehaviour, ToSwarm},
+  swarm::{NetworkBehaviour, PollParameters, ToSwarm},
   PeerId,
 };
 
@@ -161,7 +161,7 @@ impl NetworkBehaviour for Behaviour {
     )
   }
 
-  fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
+  fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
     self.gossip.on_swarm_event(event)
   }
 
@@ -179,13 +179,14 @@ impl NetworkBehaviour for Behaviour {
   fn poll(
     &mut self,
     cx: &mut std::task::Context<'_>,
+    params: &mut impl PollParameters,
   ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
   {
     if self.enable_republish && self.backoff.is_expired() {
       let all_republished = self.drain_publish();
       self.backoff.start_next(all_republished);
     }
-    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.gossip, cx) {
+    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.gossip, cx, params) {
       match ready {
         ToSwarm::GenerateEvent(event) => self.handle_event(event),
         ToSwarm::Dial { opts } => {

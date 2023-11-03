@@ -16,8 +16,8 @@ pub struct Config {
 impl Default for Config {
   fn default() -> Self {
     Self {
-      ttl: Duration::from_secs(300),
-      query_interval: Duration::from_secs(20),
+      ttl: Duration::from_secs(10),
+      query_interval: Duration::from_secs(10),
       ipv6: Default::default(),
       service_name: Default::default(),
       service_name_fqdn: Default::default(),
@@ -46,12 +46,19 @@ impl Config {
 
   pub fn service_name(self, service_name: impl Into<String>) -> Self {
     let name = service_name.into();
-    let service_name = f!("_{name}._p2p._udp.local").as_bytes().to_vec();
-    let service_name_fqdn = f!("_{name}._p2p._udp.local.");
-    let meta_query_service = f!("_{name}._services._dns-sd._udp.local")
-      .as_bytes()
-      .to_vec();
-    let meta_query_service_fqdn = f!("_{name}._services._dns-sd._udp.local.");
+    let name = if !name.is_empty() {
+      f!("_{name}.")
+    } else {
+      f!("")
+    };
+    let service_name = f!("{name}_p2p._udp.local").into_bytes();
+    let service_name_fqdn = f!("{name}_p2p._udp.local.");
+    let meta_query_service = f!("{name}_services._dns-sd._udp.local").into_bytes();
+    let meta_query_service_fqdn = f!("{name}_services._dns-sd._udp.local.");
+    assert_eq!(service_name, b"_p2p._udp.local");
+    assert_eq!(service_name_fqdn, "_p2p._udp.local.");
+    assert_eq!(meta_query_service, b"_services._dns-sd._udp.local");
+    assert_eq!(meta_query_service_fqdn, "_services._dns-sd._udp.local.");
     Self {
       service_name,
       service_name_fqdn,

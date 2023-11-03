@@ -1,26 +1,7 @@
-// Copyright 2018 Parity Technologies (UK) Ltd.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
-
 //! (M)DNS encoding and decoding on top of the `dns_parser` library.
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::core::Multiaddr;
+use libp2p::identity::PeerId;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::{borrow::Cow, cmp, error, fmt, str, time::Duration};
@@ -68,7 +49,7 @@ pub(crate) fn decode_character_string(mut from: &[u8]) -> Result<Cow<'_, [u8]>, 
 
 /// Builds the binary representation of a DNS query to send on the network.
 pub(crate) fn build_query(service_name: &[u8]) -> MdnsPacket {
-  let mut out = Vec::with_capacity(18 + service_name.len());
+  let mut out = Vec::with_capacity(33);
 
   // Program-generated transaction ID; unused by our implementation.
   append_u16(&mut out, rand::random());
@@ -133,7 +114,7 @@ pub(crate) fn build_query_response<'a>(
         records.push(txt_record);
       }
       Err(e) => {
-        warn!("Excluding address {} from response: {:?}", addr, e);
+        log::warn!("Excluding address {} from response: {:?}", addr, e);
       }
     }
 
@@ -187,7 +168,7 @@ pub(crate) fn build_service_discovery_response(
   let ttl = duration_to_secs(ttl);
 
   // This capacity was determined empirically.
-  let mut out = Vec::with_capacity(26 + service_name.len() + meta_query_service.len());
+  let mut out = Vec::with_capacity(69);
 
   append_u16(&mut out, id);
   // 0x84 flag for an answer.
@@ -418,13 +399,13 @@ impl error::Error for MdnsResponseError {}
 #[cfg(test)]
 mod tests {
   use super::*;
-  use libp2p::identity;
+  use libp2p_identity as identity;
   use std::time::Duration;
   use trust_dns_proto::op::Message;
 
   #[test]
   fn build_query_correct() {
-    let query = build_query(b"_this-is-restor-key._p2p._udp.local");
+    let query = build_query(b"_p2p._udp.local");
     assert!(Message::from_vec(&query).is_ok());
   }
 
@@ -450,8 +431,8 @@ mod tests {
     let query = build_service_discovery_response(
       0x1234,
       Duration::from_secs(120),
-      b"_this-is-restor-key._p2p._udp.local",
-      b"_this-is-restor-key._services._dns-sd._udp.local",
+      b"_p2p._udp.local",
+      b"service._p2p._udp.local",
     );
     assert!(Message::from_vec(&query).is_ok());
   }

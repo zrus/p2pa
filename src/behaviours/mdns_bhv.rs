@@ -5,23 +5,21 @@ mod timer;
 
 pub use self::config::Config;
 use self::iface::InterfaceState;
-use self::timer::Timer;
-use futures::channel::mpsc;
-use futures::{Stream, StreamExt};
-use if_watch::tokio::IfWatcher;
+use futures::Stream;
 use if_watch::IfEvent;
 use libp2p::core::{Endpoint, Multiaddr};
+use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::FromSwarm;
 use libp2p::swarm::{
-  dummy, ConnectionDenied, ConnectionId, ListenAddresses, NetworkBehaviour, THandler,
-  THandlerInEvent, THandlerOutEvent, ToSwarm,
+  dummy, ConnectionDenied, ConnectionId, ListenAddresses, NetworkBehaviour, PollParameters,
+  THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
 };
-use libp2p::PeerId;
 use smallvec::SmallVec;
 use std::collections::hash_map::{Entry, HashMap};
-use std::sync::{Arc, RwLock};
 use std::{cmp, io, net::IpAddr, pin::Pin, task::Context, task::Poll, time::Instant};
-use tokio::task::JoinHandle;
+
+use self::timer::Timer;
+use if_watch::tokio::IfWatcher;
 
 /// A `NetworkBehaviour` for mDNS. Automatically discovers peers on the local network and adds
 /// them to the topology.
@@ -33,11 +31,8 @@ pub struct Behaviour {
   /// Iface watcher.
   if_watch: IfWatcher,
 
-  /// Handles to tasks running the mDNS queries.
-  if_tasks: HashMap<IpAddr, JoinHandle<()>>,
-
-  query_response_receiver: mpsc::Receiver<(PeerId, Multiaddr, Instant)>,
-  query_response_sender: mpsc::Sender<(PeerId, Multiaddr, Instant)>,
+  /// Mdns interface states.
+  iface_states: HashMap<IpAddr, InterfaceState>,
 
   /// List of nodes that we have discovered, the address, and when their TTL expires.
   ///
@@ -50,33 +45,22 @@ pub struct Behaviour {
   /// `None` if `discovered_nodes` is empty.
   closest_expiration: Option<Timer>,
 
-  /// The current set of listen addresses.
-  ///
-  /// This is shared across all interface tasks using an [`RwLock`].
-  /// The [`Behaviour`] updates this upon new [`FromSwarm`] events where as [`InterfaceState`]s read from it to answer inbound mDNS queries.
-  listen_addresses: Arc<RwLock<ListenAddresses>>,
+  listen_addresses: ListenAddresses,
 
   local_peer_id: PeerId,
-
-  event_queue: Vec<Event>,
 }
 
 impl Behaviour {
   /// Builds a new `Mdns` behaviour.
   pub fn new(config: Config, local_peer_id: PeerId) -> io::Result<Self> {
-    let (tx, rx) = mpsc::channel(8); // Chosen arbitrarily.
-
     Ok(Self {
       config,
       if_watch: IfWatcher::new()?,
-      if_tasks: Default::default(),
-      query_response_receiver: rx,
-      query_response_sender: tx,
+      iface_states: Default::default(),
       discovered_nodes: Default::default(),
       closest_expiration: Default::default(),
       listen_addresses: Default::default(),
       local_peer_id,
-      event_queue: Default::default(),
     })
   }
 
@@ -142,15 +126,36 @@ impl NetworkBehaviour for Behaviour {
     void::unreachable(ev)
   }
 
-  fn on_swarm_event(&mut self, event: FromSwarm) {
-    self
-      .listen_addresses
-      .write()
-      .unwrap_or_else(|e| e.into_inner())
-      .on_swarm_event(&event);
+  fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    self.listen_addresses.on_swarm_event(&event);
+
+    match event {
+      FromSwarm::NewListener(_) => {
+        log::trace!("waking interface state because listening address changed");
+        for iface in self.iface_states.values_mut() {
+          iface.fire_timer();
+        }
+      }
+      FromSwarm::ConnectionClosed(_)
+      | FromSwarm::ConnectionEstablished(_)
+      | FromSwarm::DialFailure(_)
+      | FromSwarm::AddressChange(_)
+      | FromSwarm::ListenFailure(_)
+      | FromSwarm::NewListenAddr(_)
+      | FromSwarm::ExpiredListenAddr(_)
+      | FromSwarm::ListenerError(_)
+      | FromSwarm::ListenerClosed(_)
+      | FromSwarm::NewExternalAddrCandidate(_)
+      | FromSwarm::ExternalAddrExpired(_)
+      | FromSwarm::ExternalAddrConfirmed(_) => {}
+    }
   }
 
-  fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+  fn poll(
+    &mut self,
+    cx: &mut Context<'_>,
+    _: &mut impl PollParameters,
+  ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
     // Poll ifwatch.
     while let Poll::Ready(Some(event)) = Pin::new(&mut self.if_watch).poll_next(cx) {
       match event {
@@ -162,53 +167,45 @@ impl NetworkBehaviour for Behaviour {
           if addr.is_ipv4() && self.config.ipv6 || addr.is_ipv6() && !self.config.ipv6 {
             continue;
           }
-          if let Entry::Vacant(e) = self.if_tasks.entry(addr) {
-            match InterfaceState::new(
-              addr,
-              self.config.clone(),
-              self.local_peer_id,
-              self.listen_addresses.clone(),
-              self.query_response_sender.clone(),
-            ) {
+          if let Entry::Vacant(e) = self.iface_states.entry(addr) {
+            match InterfaceState::new(addr, self.config.clone(), self.local_peer_id) {
               Ok(iface_state) => {
-                e.insert(tokio::spawn(iface_state));
+                e.insert(iface_state);
               }
-              Err(err) => error!("failed to create `InterfaceState`: {}", err),
+              Err(err) => log::error!("failed to create `InterfaceState`: {}", err),
             }
           }
         }
         Ok(IfEvent::Down(inet)) => {
-          if let Some(handle) = self.if_tasks.remove(&inet.addr()) {
-            info!("dropping instance {}", inet.addr());
-
-            handle.abort();
+          if self.iface_states.contains_key(&inet.addr()) {
+            log::info!("dropping instance {}", inet.addr());
+            self.iface_states.remove(&inet.addr());
           }
         }
-        Err(err) => error!("if watch returned an error: {}", err),
+        Err(err) => log::error!("if watch returned an error: {}", err),
       }
     }
     // Emit discovered event.
     let mut discovered = Vec::new();
-
-    while let Poll::Ready(Some((peer, addr, expiration))) =
-      self.query_response_receiver.poll_next_unpin(cx)
-    {
-      if let Some((_, _, cur_expires)) = self
-        .discovered_nodes
-        .iter_mut()
-        .find(|(p, a, _)| *p == peer && *a == addr)
+    for iface_state in self.iface_states.values_mut() {
+      while let Poll::Ready((peer, addr, expiration)) = iface_state.poll(cx, &self.listen_addresses)
       {
-        *cur_expires = cmp::max(*cur_expires, expiration);
-      } else {
-        info!("discovered: {} {}", peer, addr);
-        self.discovered_nodes.push((peer, addr.clone(), expiration));
-        discovered.push((peer, addr));
+        if let Some((_, _, cur_expires)) = self
+          .discovered_nodes
+          .iter_mut()
+          .find(|(p, a, _)| *p == peer && *a == addr)
+        {
+          *cur_expires = cmp::max(*cur_expires, expiration);
+        } else {
+          log::info!("discovered: {} {}", peer, addr);
+          self.discovered_nodes.push((peer, addr.clone(), expiration));
+          discovered.push((peer, addr));
+        }
       }
     }
-
     if !discovered.is_empty() {
       let event = Event::Discovered(discovered);
-      self.event_queue.push(event);
+      return Poll::Ready(ToSwarm::GenerateEvent(event));
     }
     // Emit expired event.
     let now = Instant::now();
@@ -216,7 +213,7 @@ impl NetworkBehaviour for Behaviour {
     let mut expired = Vec::new();
     self.discovered_nodes.retain(|(peer, addr, expiration)| {
       if *expiration <= now {
-        info!("expired: {} {}", peer, addr);
+        log::info!("expired: {} {}", peer, addr);
         expired.push((*peer, addr.clone()));
         return false;
       }
@@ -225,16 +222,13 @@ impl NetworkBehaviour for Behaviour {
     });
     if !expired.is_empty() {
       let event = Event::Expired(expired);
-      self.event_queue.push(event);
+      return Poll::Ready(ToSwarm::GenerateEvent(event));
     }
     if let Some(closest_expiration) = closest_expiration {
       let mut timer = Timer::at(closest_expiration);
       let _ = Pin::new(&mut timer).poll_next(cx);
 
       self.closest_expiration = Some(timer);
-    }
-    if !self.event_queue.is_empty() {
-      return Poll::Ready(ToSwarm::GenerateEvent(self.event_queue.remove(0)));
     }
     Poll::Pending
   }

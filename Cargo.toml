@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies.tokio]
 version = "*"
-features = ["rt", "time", "sync", "macros", "rt-multi-thread", "signal", "tracing", "io-util", "io-std"] 
+features = ["rt", "time", "sync", "macros", "rt-multi-thread", "signal", "tracing", "io-util", "io-std", "net"] 
 
 [dependencies.tokio-stream]
 version = "*"
@@ -17,7 +17,7 @@ version = "*"
 version = "*"
 
 [dependencies.libp2p]
-git = "https://github.com/libp2p/rust-libp2p"
+version = "0.52.4"
 features = ["full"]
 
 [dependencies.serde]
@@ -37,10 +37,10 @@ version = "*"
 version = "*"
 
 [dependencies.rand]
-version = "*"
+version = "0.8.3"
 
 [dependencies.void]
-version = "*"
+version = "1.0.2"
 
 [dependencies.either]
 version = "*"
@@ -52,18 +52,18 @@ version = "*"
 version = "*"
 
 [dependencies.trust-dns-proto]
-version = "*"
-features = ["dnssec"]
+version = "0.22.0"
+features = ["dnssec", "mdns", "tokio-runtime"]
 
 [dependencies.if-watch]
-version = "*"
+version = "3.0.1"
 features = ["tokio"]
 
 [dependencies.smallvec]
-version = "*"
+version = "1.6.1"
 
 [dependencies.socket2]
-version = "*"
+version = "0.5.3"
 features = ["all"]
 
 # Develop dependencies

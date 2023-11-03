@@ -1,10 +1,5 @@
-use std::{
-  pin::Pin,
-  task::{Context, Poll},
-  time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
-/// Simple wrapper for the different type of timers
 #[derive(Debug)]
 pub struct Timer {
   inner: Interval,
@@ -12,11 +7,18 @@ pub struct Timer {
 
 use ::tokio::time::{self, Instant as TokioInstant, Interval, MissedTickBehavior};
 use futures::Stream;
+use std::{
+  pin::Pin,
+  task::{Context, Poll},
+};
 
-pub type TokioTimer = Timer;
-impl TokioTimer {
+impl Timer {
   pub fn at(instant: Instant) -> Self {
-    let mut inner = time::interval_at(TokioInstant::from_std(instant), Duration::MAX);
+    // Taken from: https://docs.rs/async-io/1.7.0/src/async_io/lib.rs.html#91
+    let mut inner = time::interval_at(
+      TokioInstant::from_std(instant),
+      Duration::new(std::u64::MAX, 1_000_000_000 - 1),
+    );
     inner.set_missed_tick_behavior(MissedTickBehavior::Skip);
     Self { inner }
   }
@@ -34,7 +36,7 @@ impl TokioTimer {
   }
 }
 
-impl Stream for TokioTimer {
+impl Stream for Timer {
   type Item = TokioInstant;
 
   fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
