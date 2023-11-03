@@ -2,7 +2,7 @@ use std::{collections::HashSet, task::Poll};
 
 use libp2p::{
   mdns,
-  swarm::{NetworkBehaviour, ToSwarm},
+  swarm::{NetworkBehaviour, PollParameters, ToSwarm},
   Multiaddr, PeerId,
 };
 
@@ -90,7 +90,7 @@ impl NetworkBehaviour for Behaviour {
     )
   }
 
-  fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
+  fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
     self.mdns.on_swarm_event(event)
   }
 
@@ -108,8 +108,9 @@ impl NetworkBehaviour for Behaviour {
   fn poll(
     &mut self,
     cx: &mut std::task::Context<'_>,
+    params: &mut impl PollParameters,
   ) -> std::task::Poll<ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
-    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.mdns, cx) {
+    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.mdns, cx, params) {
       match ready {
         ToSwarm::GenerateEvent(event) => self.handle_event(event),
         ToSwarm::Dial { opts } => {

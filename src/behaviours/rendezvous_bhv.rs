@@ -4,7 +4,7 @@ use libp2p::{
   core::ConnectedPoint,
   multiaddr::Protocol,
   rendezvous::{self, Cookie, Namespace, Ttl},
-  swarm::{FromSwarm, NetworkBehaviour, ToSwarm},
+  swarm::{FromSwarm, NetworkBehaviour, PollParameters, ToSwarm},
   Multiaddr, PeerId,
 };
 
@@ -179,7 +179,7 @@ impl NetworkBehaviour for Behaviour {
     )
   }
 
-  fn on_swarm_event(&mut self, event: FromSwarm) {
+  fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
     if let FromSwarm::ConnectionEstablished(e) = event {
       if let ConnectedPoint::Dialer { address, .. } = &e.endpoint {
         for (rdvz_addr, namespace) in &self.in_progress_register {
@@ -219,6 +219,7 @@ impl NetworkBehaviour for Behaviour {
   fn poll(
     &mut self,
     cx: &mut std::task::Context<'_>,
+    params: &mut impl PollParameters,
   ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
   {
     if let Some(backoff) = self.backoff.as_mut() {
@@ -227,7 +228,7 @@ impl NetworkBehaviour for Behaviour {
         self.drain_discover();
       }
     }
-    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.rdvz, cx) {
+    while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.rdvz, cx, params) {
       match ready {
         ToSwarm::GenerateEvent(event) => self.handle_event(event),
         ToSwarm::Dial { opts } => {

@@ -10,6 +10,7 @@ async fn main() -> Ret {
     // .enable_rendezvous(true)
     // .enable_relay(true)
     // .enable_dht(true)
+    .enable_republish(true)
     .rendezvous_namespaces(vec![String::from("aumpos::global")])
     .rendezvous_ttl(30)
     .build()?;
@@ -34,8 +35,8 @@ async fn main() -> Ret {
 
   node.subscribe("test")?;
   node.publish("test", "Hello")?;
-  node.subscribe("test-2")?;
-  node.publish("test-2", "Goodbye")?;
+  // node.subscribe("test-2")?;
+  // node.publish("test-2", "Goodbye")?;
 
   let mut buf = String::new();
   _ = std::io::stdin().read_line(&mut buf);
