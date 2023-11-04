@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies.tokio]
 version = "*"
-features = ["rt", "time", "sync", "macros", "rt-multi-thread", "signal", "tracing", "io-util", "io-std"] 
+features = ["rt", "time", "sync", "macros", "rt-multi-thread", "signal", "tracing", "io-util", "io-std", "net"] 
 
 [dependencies.tokio-stream]
 version = "*"
@@ -37,10 +37,10 @@ version = "*"
 version = "*"
 
 [dependencies.rand]
-version = "*"
+version = "0.8.3"
 
 [dependencies.void]
-version = "*"
+version = "1.0.2"
 
 [dependencies.either]
 version = "*"
@@ -52,8 +52,21 @@ version = "*"
 version = "*"
 
 [dependencies.trust-dns-proto]
-version = "*"
-features = ["dnssec"]
+version = "0.23.2"
+features = ["dnssec", "mdns", "tokio-runtime"]
+
+[dependencies.if-watch]
+version = "3.0.1"
+features = ["tokio"]
+
+[dependencies.smallvec]
+version = "1.6.1"
+
+[dependencies.socket2]
+version = "0.5.3"
+features = ["all"]
+
+# Develop dependencies
 
 [dev-dependencies.env_logger]
 version = "*"

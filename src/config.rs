@@ -15,6 +15,8 @@ pub struct Config {
   rendezvous_namespaces: Vec<String>,
   #[builder(setter(strip_option), default)]
   rendezvous_ttl: Option<u64>,
+  #[builder(setter(into))]
+  mdns_service_name: String,
   #[builder(default)]
   enable_mdns: bool,
   #[builder(default)]
@@ -50,6 +52,10 @@ impl Config {
 
   pub fn rendezvous_ttl(&self) -> Option<u64> {
     self.rendezvous_ttl
+  }
+
+  pub fn mdns_service_name(&self) -> &str {
+    &self.mdns_service_name
   }
 
   pub fn enable_mdns(&self) -> bool {

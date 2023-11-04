@@ -7,6 +7,7 @@ async fn main() -> Ret {
   env_logger::init();
   let config = ConfigBuilder::default()
     .enable_mdns(true)
+    .mdns_service_name("nha-hang-key")
     // .enable_rendezvous(true)
     // .enable_relay(true)
     // .enable_dht(true)
