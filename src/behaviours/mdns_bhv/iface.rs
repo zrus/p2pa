@@ -22,7 +22,7 @@ use std::{
 };
 
 /// Initial interval for starting probe
-const INITIAL_TIMEOUT_INTERVAL: Duration = Duration::from_millis(500);
+const INITIAL_TIMEOUT_INTERVAL: Duration = Duration::from_millis(1000);
 
 #[derive(Debug, Clone)]
 enum ProbeState {
@@ -82,7 +82,7 @@ pub(crate) struct InterfaceState {
 impl InterfaceState {
   /// Builds a new [`InterfaceState`].
   pub(crate) fn new(addr: IpAddr, config: Config, local_peer_id: PeerId) -> io::Result<Self> {
-    log::info!("creating instance on iface {}", addr);
+    info!("creating instance on iface {}", addr);
     let recv_socket = match addr {
       IpAddr::V4(addr) => {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
@@ -93,7 +93,7 @@ impl InterfaceState {
         socket.set_multicast_loop_v4(true)?;
         socket.set_multicast_ttl_v4(255)?;
         socket.join_multicast_v4(&IPV4_MDNS_MULTICAST_ADDRESS, &addr)?;
-        TokioUdpSocket::from_std(UdpSocket::from(socket))?
+        <TokioUdpSocket as AsyncSocket>::from_std(UdpSocket::from(socket))?
       }
       IpAddr::V6(_) => {
         let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(socket2::Protocol::UDP))?;
@@ -104,7 +104,7 @@ impl InterfaceState {
         socket.set_multicast_loop_v6(true)?;
         // TODO: find interface matching addr.
         socket.join_multicast_v6(&IPV6_MDNS_MULTICAST_ADDRESS, 0)?;
-        TokioUdpSocket::from_std(UdpSocket::from(socket))?
+        <TokioUdpSocket as AsyncSocket>::from_std(UdpSocket::from(socket))?
       }
     };
     let bind_addr = match addr {
@@ -117,7 +117,7 @@ impl InterfaceState {
         SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
       }
     };
-    let send_socket = TokioUdpSocket::from_std(UdpSocket::bind(bind_addr)?)?;
+    let send_socket = <TokioUdpSocket as AsyncSocket>::from_std(UdpSocket::bind(bind_addr)?)?;
 
     // randomize timer to prevent all converging and firing at the same time.
     let query_interval = {
@@ -148,7 +148,7 @@ impl InterfaceState {
   }
 
   pub(crate) fn reset_timer(&mut self) {
-    log::trace!("reset timer on {:#?} {:#?}", self.addr, self.probe_state);
+    trace!("reset timer on {:#?} {:#?}", self.addr, self.probe_state);
     let interval = *self.probe_state.interval();
     self.timeout = Timer::interval(interval);
   }
@@ -165,16 +165,15 @@ impl InterfaceState {
     loop {
       // 1st priority: Low latency: Create packet ASAP after timeout.
       if Pin::new(&mut self.timeout).poll_next(cx).is_ready() {
-        log::trace!("sending query on iface {}", self.addr);
+        trace!("sending query on iface {}", self.addr);
         self
           .send_buffer
           .push_back(build_query(&self.config.service_name));
-        log::trace!("tick on {:#?} {:#?}", self.addr, self.probe_state);
+        trace!("tick on {:#?} {:#?}", self.addr, self.probe_state);
 
         // Stop to probe when the initial interval reach the query interval
         if let ProbeState::Probing(interval) = self.probe_state {
-          let interval = interval * 2;
-          self.probe_state = if interval >= self.query_interval {
+          self.probe_state = if interval * 2 >= self.query_interval {
             ProbeState::Finished(self.query_interval)
           } else {
             ProbeState::Probing(interval)
@@ -192,11 +191,11 @@ impl InterfaceState {
           SocketAddr::new(self.multicast_addr, 5353),
         ) {
           Poll::Ready(Ok(_)) => {
-            log::trace!("sent packet on iface {}", self.addr);
+            trace!("sent packet on iface {}", self.addr);
             continue;
           }
           Poll::Ready(Err(err)) => {
-            log::error!("error sending packet on iface {} {}", self.addr, err);
+            error!("error sending packet on iface {} {}", self.addr, err);
             continue;
           }
           Poll::Pending => {
@@ -222,7 +221,7 @@ impl InterfaceState {
           )
         }) {
         Poll::Ready(Ok(Ok(Some(MdnsPacket::Query(query))))) => {
-          log::trace!(
+          trace!(
             "received query from {} on {}",
             query.remote_addr(),
             self.addr
@@ -238,7 +237,7 @@ impl InterfaceState {
           continue;
         }
         Poll::Ready(Ok(Ok(Some(MdnsPacket::Response(response))))) => {
-          log::trace!(
+          trace!(
             "received response from {} on {}",
             response.remote_addr(),
             self.addr
@@ -256,7 +255,7 @@ impl InterfaceState {
           continue;
         }
         Poll::Ready(Ok(Ok(Some(MdnsPacket::ServiceDiscovery(disc))))) => {
-          log::trace!(
+          trace!(
             "received service discovery from {} on {}",
             disc.remote_addr(),
             self.addr
@@ -274,10 +273,10 @@ impl InterfaceState {
           // No more bytes available on the socket to read
         }
         Poll::Ready(Err(err)) => {
-          log::error!("failed reading datagram: {}", err);
+          error!("failed reading datagram: {}", err);
         }
         Poll::Ready(Ok(Err(err))) => {
-          log::debug!("Parsing mdns packet failed: {:?}", err);
+          debug!("Parsing mdns packet failed: {:?}", err);
         }
         Poll::Ready(Ok(Ok(None))) | Poll::Pending => {}
       }

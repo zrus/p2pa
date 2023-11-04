@@ -49,7 +49,7 @@ pub(crate) fn decode_character_string(mut from: &[u8]) -> Result<Cow<'_, [u8]>, 
 
 /// Builds the binary representation of a DNS query to send on the network.
 pub(crate) fn build_query(service_name: &[u8]) -> MdnsPacket {
-  let mut out = Vec::with_capacity(33);
+  let mut out = Vec::with_capacity(18 + service_name.len());
 
   // Program-generated transaction ID; unused by our implementation.
   append_u16(&mut out, rand::random());
@@ -114,7 +114,7 @@ pub(crate) fn build_query_response<'a>(
         records.push(txt_record);
       }
       Err(e) => {
-        log::warn!("Excluding address {} from response: {:?}", addr, e);
+        warn!("Excluding address {} from response: {:?}", addr, e);
       }
     }
 
@@ -168,7 +168,7 @@ pub(crate) fn build_service_discovery_response(
   let ttl = duration_to_secs(ttl);
 
   // This capacity was determined empirically.
-  let mut out = Vec::with_capacity(69);
+  let mut out = Vec::with_capacity(26 + service_name.len() + meta_query_service.len());
 
   append_u16(&mut out, id);
   // 0x84 flag for an answer.

@@ -16,8 +16,8 @@ pub struct Config {
 impl Default for Config {
   fn default() -> Self {
     Self {
-      ttl: Duration::from_secs(10),
-      query_interval: Duration::from_secs(10),
+      ttl: Duration::from_secs(300),
+      query_interval: Duration::from_secs(2),
       ipv6: Default::default(),
       service_name: Default::default(),
       service_name_fqdn: Default::default(),
@@ -55,10 +55,6 @@ impl Config {
     let service_name_fqdn = f!("{name}_p2p._udp.local.");
     let meta_query_service = f!("{name}_services._dns-sd._udp.local").into_bytes();
     let meta_query_service_fqdn = f!("{name}_services._dns-sd._udp.local.");
-    assert_eq!(service_name, b"_p2p._udp.local");
-    assert_eq!(service_name_fqdn, "_p2p._udp.local.");
-    assert_eq!(meta_query_service, b"_services._dns-sd._udp.local");
-    assert_eq!(meta_query_service_fqdn, "_services._dns-sd._udp.local.");
     Self {
       service_name,
       service_name_fqdn,

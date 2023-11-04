@@ -504,7 +504,6 @@ impl NodeInner {
         }
       },
       NodeBehaviourEvent::Mdns(mdns) => {
-        warn!("New peers found");
         match mdns {
           mdns_bhv::Event::Discovered(peers) => {
             let peers = peers.into_iter().map(|p| p.0).collect::<Vec<_>>();
