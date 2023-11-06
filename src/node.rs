@@ -461,6 +461,14 @@ impl NodeInner {
           warn!("unsupported rendezvous");
         }
       }
+      Command::Unregister { namespace } => {
+        if let Some(rdvz) = self.swarm.behaviour_mut().rdvz.as_mut() {
+          info!("unregistering on `{namespace}`..");
+          rdvz.unregister(namespace)?;
+        } else {
+          warn!("unsupported rendezvous");
+        }
+      }
       Command::Discover { point, namespace } => {
         if let Some(rdvz) = self.swarm.behaviour_mut().rdvz.as_mut() {
           info!("discovering on `{namespace}`..");

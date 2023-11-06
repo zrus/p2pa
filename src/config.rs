@@ -14,7 +14,7 @@ pub struct Config {
   rendezvous_nodes: Vec<(PeerId, Multiaddr)>,
   #[builder(setter(into), default)]
   rendezvous_namespaces: Vec<String>,
-  #[builder(setter(strip_option), default)]
+  #[builder(setter(into), default)]
   rendezvous_ttl: Option<u64>,
   #[builder(setter(into), default = "String::new()")]
   mdns_service_name: String,

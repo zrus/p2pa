@@ -6,14 +6,14 @@ use p2pa::{prelude::*, ConfigBuilder, Event, Node};
 async fn main() -> Ret {
   env_logger::init();
   let config = ConfigBuilder::default()
-    .enable_mdns(true)
-    .mdns_service_name("nha-hang-key")
-    // .enable_rendezvous(true)
-    // .enable_relay(true)
-    // .enable_dht(true)
     .enable_republish(true)
-    .rendezvous_namespaces(vec![String::from("aumpos::global")])
+    // .enable_mdns(true)
+    // .mdns_service_name("nha-hang-key")
+    .enable_rendezvous(true)
+    .rendezvous_namespaces(vec![String::from("nha-hang-key")])
     .rendezvous_ttl(30)
+    // .enable_dht(true)
+    // .enable_relay(true)
     .build()?;
   let node = Node::init(0usize, config).await?;
   let node = Arc::new(node);

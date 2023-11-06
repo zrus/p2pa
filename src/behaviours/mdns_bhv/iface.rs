@@ -25,13 +25,13 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-enum ProbeState {
+pub enum ProbeState {
   Probing(Duration),
   Finished(Duration),
 }
 
 impl ProbeState {
-  fn interval(&self) -> &Duration {
+  pub fn interval(&self) -> &Duration {
     match self {
       ProbeState::Probing(query_interval) => query_interval,
       ProbeState::Finished(query_interval) => query_interval,

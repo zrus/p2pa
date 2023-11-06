@@ -19,6 +19,7 @@ pub enum Command {
   ListenViaRelay(String),
   // Rendezvous stuff
   Register { point: String, namespace: String },
+  Unregister { namespace: String },
   Discover { point: String, namespace: String },
   // Gossipsub stuff
   Publish { topic: String, contents: Vec<u8> },

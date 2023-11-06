@@ -1,5 +1,10 @@
-use std::{collections::HashSet, task::Poll};
+use std::{
+  collections::HashSet,
+  task::Poll,
+  time::{Duration, Instant},
+};
 
+use futures::StreamExt;
 use libp2p::{
   core::ConnectedPoint,
   multiaddr::Protocol,
@@ -8,7 +13,9 @@ use libp2p::{
   Multiaddr, PeerId,
 };
 
-use crate::{prelude::*, utils::ExponentialBackoff};
+use crate::prelude::*;
+
+use super::mdns_bhv::{ProbeState, Timer};
 
 #[derive(Debug)]
 pub enum Event {
@@ -20,12 +27,13 @@ pub struct Behaviour {
   current_id: PeerId,
   rdvz: rendezvous::client::Behaviour,
   cookie: Option<Cookie>,
-  in_progress_register: HashSet<(Multiaddr, Namespace)>,
-  in_progress_discovery: HashSet<(Multiaddr, Namespace)>,
+  registrations: HashSet<(Multiaddr, Namespace)>,
+  discovery: HashSet<(Multiaddr, Namespace)>,
   connected_rdvzs: Vec<(PeerId, Multiaddr)>,
-  backoff: Option<ExponentialBackoff>,
   event_queue: Vec<Event>,
   ttl: Option<Ttl>,
+  probe_state: ProbeState,
+  timeout: Timer,
 }
 
 impl Behaviour {
@@ -38,45 +46,40 @@ impl Behaviour {
       current_id,
       rdvz: behaviour,
       cookie: Default::default(),
-      in_progress_register: Default::default(),
-      in_progress_discovery: Default::default(),
+      registrations: Default::default(),
+      discovery: Default::default(),
       connected_rdvzs: Default::default(),
-      backoff: Default::default(),
       event_queue: Default::default(),
       ttl,
-    }
-  }
-
-  pub fn drain_discover(&mut self) {
-    for (peer, addr) in &self.connected_rdvzs {
-      for (rdvz_addr, namespace) in &self.in_progress_register {
-        if *addr == *rdvz_addr {
-          if let Err(e) = self.rdvz.register(namespace.clone(), *peer, self.ttl) {
-            error!("register rendezvous failed: {e}");
-          }
-        }
-      }
-      for (rdvz_addr, namespace) in &self.in_progress_discovery {
-        if *addr == *rdvz_addr {
-          self
-            .rdvz
-            .discover(Some(namespace.clone()), self.cookie.clone(), None, *peer)
-        }
-      }
+      probe_state: ProbeState::Probing(Duration::from_secs(ttl.unwrap_or(30))),
+      timeout: Timer::interval_at(Instant::now(), Duration::from_secs(ttl.unwrap_or(30))),
     }
   }
 
   pub fn register(&mut self, rdvz_node: Multiaddr, namespace: impl Into<String>) -> Ret {
     let namespace = namespace.into();
     self
-      .in_progress_register
+      .registrations
       .insert((rdvz_node, Namespace::new(namespace)?));
+    Ok(())
+  }
+
+  pub fn unregister(&mut self, namespace: impl Into<String>) -> Ret {
+    let unregister_namespace = Namespace::new(namespace.into())?;
+    for (point, namespace) in &self.registrations {
+      match point.clone().pop() {
+        Some(Protocol::P2p(node)) if unregister_namespace == *namespace => {
+          self.rdvz.unregister(namespace.clone(), node);
+        }
+        _ => {}
+      }
+    }
     Ok(())
   }
 
   pub fn discover(&mut self, rdvz_node: Multiaddr, namespace: impl Into<String>) -> Ret {
     self
-      .in_progress_discovery
+      .discovery
       .insert((rdvz_node, Namespace::new(namespace.into())?));
     Ok(())
   }
@@ -85,23 +88,18 @@ impl Behaviour {
     use rendezvous::client::Event::*;
     match event {
       Discovered {
-        rendezvous_node,
         registrations,
         cookie,
+        ..
       } => {
         self.cookie.replace(cookie);
 
         let mut discovered = HashSet::new();
         for registration in registrations {
           let peer = registration.record.peer_id();
-          let namespace = registration.namespace;
           if peer == self.current_id {
             continue;
           }
-
-          self.in_progress_discovery.retain(|info| {
-            !(info.0.iter().any(|p| p == Protocol::P2p(rendezvous_node)) && info.1 == namespace)
-          });
 
           for address in registration.record.addresses() {
             discovered.insert((peer, address.clone()));
@@ -109,18 +107,16 @@ impl Behaviour {
         }
         self.event_queue.push(Event::Discovered(discovered));
       }
-      Registered {
-        rendezvous_node,
-        namespace,
-        ..
-      } => {
-        self.in_progress_register.retain(|info| {
-          !(info.0.iter().any(|p| p == Protocol::P2p(rendezvous_node)) && info.1 == namespace)
-        });
+      Registered { namespace, .. } => {
         self.event_queue.push(Event::Registered(namespace));
       }
       _ => {}
     }
+  }
+
+  fn reset_timer(&mut self) {
+    let interval = *self.probe_state.interval();
+    self.timeout = Timer::interval(interval);
   }
 }
 
@@ -180,27 +176,39 @@ impl NetworkBehaviour for Behaviour {
   }
 
   fn on_swarm_event(&mut self, event: FromSwarm) {
-    if let FromSwarm::ConnectionEstablished(e) = event {
-      if let ConnectedPoint::Dialer { address, .. } = &e.endpoint {
-        for (rdvz_addr, namespace) in &self.in_progress_register {
-          if *address == *rdvz_addr {
-            if let Err(e) = self.rdvz.register(namespace.clone(), e.peer_id, self.ttl) {
+    match event {
+      FromSwarm::ConnectionEstablished(e) => {
+        if let ConnectedPoint::Dialer { address, .. } = &e.endpoint {
+          for (rdvz_addr, namespace) in &self.registrations {
+            if *address == *rdvz_addr {
+              if let Err(e) = self.rdvz.register(namespace.clone(), e.peer_id, self.ttl) {
+                error!("register rendezvous failed: {e}");
+              }
+            }
+          }
+          for (rdvz_addr, namespace) in &self.discovery {
+            if *address == *rdvz_addr {
+              self.rdvz.discover(
+                Some(namespace.clone()),
+                self.cookie.clone(),
+                None,
+                e.peer_id,
+              )
+            }
+          }
+          self.connected_rdvzs.push((e.peer_id, address.clone()));
+        }
+      }
+      FromSwarm::NewListener(_) => {
+        for (rdvz_addr, namespace) in &self.registrations {
+          if let Some(Protocol::P2p(peer)) = rdvz_addr.clone().pop() {
+            if let Err(e) = self.rdvz.register(namespace.clone(), peer, self.ttl) {
               error!("register rendezvous failed: {e}");
             }
           }
         }
-        for (rdvz_addr, namespace) in &self.in_progress_discovery {
-          if *address == *rdvz_addr {
-            self.rdvz.discover(
-              Some(namespace.clone()),
-              self.cookie.clone(),
-              None,
-              e.peer_id,
-            )
-          }
-        }
-        self.connected_rdvzs.push((e.peer_id, address.clone()));
       }
+      _ => {}
     }
     self.rdvz.on_swarm_event(event)
   }
@@ -221,11 +229,25 @@ impl NetworkBehaviour for Behaviour {
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
   {
-    if let Some(backoff) = self.backoff.as_mut() {
-      if backoff.is_expired() {
-        backoff.start_next(true);
-        self.drain_discover();
+    let ttl = Duration::from_secs(self.ttl.unwrap_or(30));
+    while self.timeout.poll_next_unpin(cx).is_ready() {
+      for (rdvz_addr, namespace) in &self.registrations {
+        if let Some(Protocol::P2p(peer)) = rdvz_addr.clone().pop() {
+          if let Err(e) = self.rdvz.register(namespace.clone(), peer, self.ttl) {
+            error!("register rendezvous failed: {e}");
+          }
+        }
       }
+
+      if let ProbeState::Probing(interval) = self.probe_state {
+        self.probe_state = if interval >= ttl {
+          ProbeState::Finished(ttl)
+        } else {
+          ProbeState::Probing(interval)
+        };
+      }
+
+      self.reset_timer();
     }
     while let Poll::Ready(ready) = NetworkBehaviour::poll(&mut self.rdvz, cx) {
       match ready {

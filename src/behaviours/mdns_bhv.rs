@@ -5,9 +5,10 @@ mod timer;
 
 pub use self::config::Config;
 use self::iface::InterfaceState;
-use self::timer::Timer;
+pub use self::timer::Timer;
 use futures::{channel::mpsc, Stream, StreamExt};
 use if_watch::{tokio::IfWatcher, IfEvent};
+pub use iface::ProbeState;
 use libp2p::core::{Endpoint, Multiaddr};
 use libp2p::identity::PeerId;
 use libp2p::swarm::{
