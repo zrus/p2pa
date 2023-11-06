@@ -11,8 +11,8 @@ use libp2p::core::{Endpoint, Multiaddr};
 use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::FromSwarm;
 use libp2p::swarm::{
-  dummy, ConnectionDenied, ConnectionId, ListenAddresses, NetworkBehaviour, PollParameters,
-  THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+  dummy, ConnectionDenied, ConnectionId, ListenAddresses, NetworkBehaviour, THandler,
+  THandlerInEvent, THandlerOutEvent, ToSwarm,
 };
 use smallvec::SmallVec;
 use std::collections::hash_map::{Entry, HashMap};
@@ -126,7 +126,7 @@ impl NetworkBehaviour for Behaviour {
     void::unreachable(ev)
   }
 
-  fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+  fn on_swarm_event(&mut self, event: FromSwarm) {
     self.listen_addresses.on_swarm_event(&event);
 
     match event {
@@ -136,26 +136,11 @@ impl NetworkBehaviour for Behaviour {
           iface.fire_timer();
         }
       }
-      FromSwarm::ConnectionClosed(_)
-      | FromSwarm::ConnectionEstablished(_)
-      | FromSwarm::DialFailure(_)
-      | FromSwarm::AddressChange(_)
-      | FromSwarm::ListenFailure(_)
-      | FromSwarm::NewListenAddr(_)
-      | FromSwarm::ExpiredListenAddr(_)
-      | FromSwarm::ListenerError(_)
-      | FromSwarm::ListenerClosed(_)
-      | FromSwarm::NewExternalAddrCandidate(_)
-      | FromSwarm::ExternalAddrExpired(_)
-      | FromSwarm::ExternalAddrConfirmed(_) => {}
+      _ => {}
     }
   }
 
-  fn poll(
-    &mut self,
-    cx: &mut Context<'_>,
-    _: &mut impl PollParameters,
-  ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+  fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
     // Poll ifwatch.
     while let Poll::Ready(Some(event)) = Pin::new(&mut self.if_watch).poll_next(cx) {
       match event {

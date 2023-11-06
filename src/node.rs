@@ -535,12 +535,12 @@ impl NodeInner {
       }
       NodeBehaviourEvent::Dht(_) => None,
       NodeBehaviourEvent::Dcutr(dcutr) => {
-        if let dcutr::Event::DirectConnectionUpgradeSucceeded { remote_peer_id } = dcutr {
+        if dcutr.result.is_ok() {
           self
             .swarm
             .behaviour_mut()
             .gossip
-            .add_explicit_peers(vec![remote_peer_id]);
+            .add_explicit_peers(vec![dcutr.remote_peer_id]);
         }
         None
       }
