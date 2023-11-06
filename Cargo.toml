@@ -55,9 +55,11 @@ version = "*"
 [dependencies.derive_builder]
 version = "*"
 
-[dependencies.trust-dns-proto]
-version = "0.23.2"
+[dependencies.hickory-proto] 
+version = "0.24.0"
+default-features = false
 features = ["dnssec", "mdns", "tokio-runtime"]
+
 
 [dependencies.if-watch]
 version = "3.0.1"

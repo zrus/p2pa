@@ -6,12 +6,15 @@ use self::query::MdnsPacket;
 use super::socket::{AsyncSocket, TokioUdpSocket};
 use super::timer::Timer;
 use super::Config;
-use futures::Stream;
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
 use libp2p::core::Multiaddr;
 use libp2p::identity::PeerId;
 use libp2p::mdns::{IPV4_MDNS_MULTICAST_ADDRESS, IPV6_MDNS_MULTICAST_ADDRESS};
 use libp2p::swarm::ListenAddresses;
 use socket2::{Domain, Socket, Type};
+use std::future::Future;
+use std::sync::{Arc, RwLock};
 use std::{
   collections::VecDeque,
   io,
@@ -21,19 +24,10 @@ use std::{
   time::{Duration, Instant},
 };
 
-/// Initial interval for starting probe
-const INITIAL_TIMEOUT_INTERVAL: Duration = Duration::from_millis(1000);
-
 #[derive(Debug, Clone)]
 enum ProbeState {
   Probing(Duration),
   Finished(Duration),
-}
-
-impl Default for ProbeState {
-  fn default() -> Self {
-    ProbeState::Probing(INITIAL_TIMEOUT_INTERVAL)
-  }
 }
 
 impl ProbeState {
@@ -45,8 +39,6 @@ impl ProbeState {
   }
 }
 
-/// An mDNS instance for a networking interface. To discover all peers when having multiple
-/// interfaces an [`InterfaceState`] is required for each interface.
 #[derive(Debug)]
 pub(crate) struct InterfaceState {
   /// Address this instance is bound to.
@@ -55,6 +47,11 @@ pub(crate) struct InterfaceState {
   recv_socket: TokioUdpSocket,
   /// Send socket.
   send_socket: TokioUdpSocket,
+
+  listen_addresses: Arc<RwLock<ListenAddresses>>,
+
+  query_response_sender: mpsc::Sender<(PeerId, Multiaddr, Instant)>,
+
   /// Buffer used for receiving data from the main socket.
   /// RFC6762 discourages packets larger than the interface MTU, but allows sizes of up to 9000
   /// bytes, if it can be ensured that all participating devices can handle such large packets.
@@ -81,8 +78,14 @@ pub(crate) struct InterfaceState {
 
 impl InterfaceState {
   /// Builds a new [`InterfaceState`].
-  pub(crate) fn new(addr: IpAddr, config: Config, local_peer_id: PeerId) -> io::Result<Self> {
-    info!("creating instance on iface {}", addr);
+  pub(crate) fn new(
+    addr: IpAddr,
+    config: Config,
+    local_peer_id: PeerId,
+    listen_addresses: Arc<RwLock<ListenAddresses>>,
+    query_response_sender: mpsc::Sender<(PeerId, Multiaddr, Instant)>,
+  ) -> io::Result<Self> {
+    info!("creating instance on iface address {addr}");
     let recv_socket = match addr {
       IpAddr::V4(addr) => {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
@@ -134,138 +137,159 @@ impl InterfaceState {
       addr,
       recv_socket,
       send_socket,
+      listen_addresses,
+      query_response_sender,
       recv_buffer: [0; 4096],
       send_buffer: Default::default(),
       discovered: Default::default(),
       query_interval,
-      timeout: Timer::interval_at(Instant::now(), INITIAL_TIMEOUT_INTERVAL),
+      timeout: Timer::interval_at(Instant::now(), config.probe_interval),
       multicast_addr,
       ttl: config.ttl,
-      probe_state: Default::default(),
+      probe_state: ProbeState::Probing(config.probe_interval),
       local_peer_id,
       config,
     })
   }
 
   pub(crate) fn reset_timer(&mut self) {
-    trace!("reset timer on {:#?} {:#?}", self.addr, self.probe_state);
+    trace!("reset timer at {} with {:?}", self.addr, self.probe_state);
     let interval = *self.probe_state.interval();
     self.timeout = Timer::interval(interval);
   }
 
-  pub(crate) fn fire_timer(&mut self) {
-    self.timeout = Timer::interval_at(Instant::now(), INITIAL_TIMEOUT_INTERVAL);
+  fn mdns_socket(&self) -> SocketAddr {
+    SocketAddr::new(self.multicast_addr, 5353)
   }
+}
 
-  pub(crate) fn poll(
-    &mut self,
-    cx: &mut Context,
-    listen_addresses: &ListenAddresses,
-  ) -> Poll<(PeerId, Multiaddr, Instant)> {
+impl Future for InterfaceState {
+  type Output = ();
+
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let config = self.config.clone();
+    let this = self.get_mut();
+
     loop {
       // 1st priority: Low latency: Create packet ASAP after timeout.
-      if Pin::new(&mut self.timeout).poll_next(cx).is_ready() {
-        trace!("sending query on iface {}", self.addr);
-        self
+      if this.timeout.poll_next_unpin(cx).is_ready() {
+        trace!("sending query on iface {}", this.addr);
+        this
           .send_buffer
-          .push_back(build_query(&self.config.service_name));
-        trace!("tick on {:#?} {:#?}", self.addr, self.probe_state);
+          .push_back(build_query(&config.service_name));
+        trace!("tick at {} with {:?}", this.addr, this.probe_state);
 
         // Stop to probe when the initial interval reach the query interval
-        if let ProbeState::Probing(interval) = self.probe_state {
-          self.probe_state = if interval * 2 >= self.query_interval {
-            ProbeState::Finished(self.query_interval)
+        if let ProbeState::Probing(interval) = this.probe_state {
+          this.probe_state = if interval * 2 >= this.query_interval {
+            ProbeState::Finished(this.query_interval)
           } else {
             ProbeState::Probing(interval)
           };
         }
 
-        self.reset_timer();
+        this.reset_timer();
       }
 
       // 2nd priority: Keep local buffers small: Send packets to remote.
-      if let Some(packet) = self.send_buffer.pop_front() {
-        match Pin::new(&mut self.send_socket).poll_write(
-          cx,
-          &packet,
-          SocketAddr::new(self.multicast_addr, 5353),
-        ) {
+      if let Some(packet) = this.send_buffer.pop_front() {
+        match this.send_socket.poll_write(cx, &packet, this.mdns_socket()) {
           Poll::Ready(Ok(_)) => {
-            trace!("sent packet on iface {}", self.addr);
+            trace!("sent packet on iface address {}", this.addr);
             continue;
           }
           Poll::Ready(Err(err)) => {
-            error!("error sending packet on iface {} {}", self.addr, err);
+            error!(
+              "error sending packet on iface address {} with {}",
+              this.addr, err
+            );
             continue;
           }
           Poll::Pending => {
-            self.send_buffer.push_front(packet);
+            this.send_buffer.push_front(packet);
           }
         }
       }
 
       // 3rd priority: Keep local buffers small: Return discovered addresses.
-      if let Some(discovered) = self.discovered.pop_front() {
-        return Poll::Ready(discovered);
+      if this.query_response_sender.poll_ready_unpin(cx).is_ready() {
+        if let Some(discovered) = this.discovered.pop_front() {
+          match this.query_response_sender.try_send(discovered) {
+            Ok(()) => {}
+            Err(e) if e.is_disconnected() => {
+              return Poll::Ready(());
+            }
+            Err(e) => {
+              this.discovered.push_front(e.into_inner());
+            }
+          }
+
+          continue;
+        }
       }
 
       // 4th priority: Remote work: Answer incoming requests.
-      match Pin::new(&mut self.recv_socket)
-        .poll_read(cx, &mut self.recv_buffer)
+      match this
+        .recv_socket
+        .poll_read(cx, &mut this.recv_buffer)
         .map_ok(|(len, from)| {
           MdnsPacket::new_from_bytes(
-            &self.recv_buffer[..len],
+            &this.recv_buffer[..len],
             from,
-            &self.config.service_name_fqdn,
-            &self.config.meta_query_service_fqdn,
+            &config.service_name_fqdn,
+            &config.meta_query_service_fqdn,
           )
         }) {
         Poll::Ready(Ok(Ok(Some(MdnsPacket::Query(query))))) => {
           trace!(
-            "received query from {} on {}",
+            "received query from remote address {} on address {}",
             query.remote_addr(),
-            self.addr
+            this.addr
           );
 
-          self.send_buffer.extend(build_query_response(
+          this.send_buffer.extend(build_query_response(
             query.query_id(),
-            self.local_peer_id,
-            listen_addresses.iter(),
-            self.ttl,
-            &self.config.service_name,
+            this.local_peer_id,
+            this
+              .listen_addresses
+              .read()
+              .unwrap_or_else(|e| e.into_inner())
+              .iter(),
+            this.ttl,
+            &config.service_name,
           ));
           continue;
         }
         Poll::Ready(Ok(Ok(Some(MdnsPacket::Response(response))))) => {
           trace!(
-            "received response from {} on {}",
+            "received response from remote address {} on address {}",
             response.remote_addr(),
-            self.addr
+            this.addr,
           );
 
-          self
+          this
             .discovered
-            .extend(response.extract_discovered(Instant::now(), self.local_peer_id));
+            .extend(response.extract_discovered(Instant::now(), this.local_peer_id));
 
           // Stop probing when we have a valid response
-          if !self.discovered.is_empty() {
-            self.probe_state = ProbeState::Finished(self.query_interval);
-            self.reset_timer();
+          if !this.discovered.is_empty() {
+            this.probe_state = ProbeState::Finished(this.query_interval);
+            this.reset_timer();
           }
           continue;
         }
         Poll::Ready(Ok(Ok(Some(MdnsPacket::ServiceDiscovery(disc))))) => {
           trace!(
-            "received service discovery from {} on {}",
+            "received service discovery from remote address {} on address {}",
             disc.remote_addr(),
-            self.addr
+            this.addr,
           );
 
-          self.send_buffer.push_back(build_service_discovery_response(
+          this.send_buffer.push_back(build_service_discovery_response(
             disc.query_id(),
-            self.ttl,
-            &self.config.service_name,
-            &self.config.meta_query_service,
+            this.ttl,
+            &config.service_name,
+            &config.meta_query_service,
           ));
           continue;
         }

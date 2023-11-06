@@ -6,6 +6,7 @@ use crate::prelude::f;
 pub struct Config {
   pub ttl: Duration,
   pub query_interval: Duration,
+  pub probe_interval: Duration,
   pub ipv6: bool,
   pub service_name: Vec<u8>,
   pub service_name_fqdn: String,
@@ -17,7 +18,8 @@ impl Default for Config {
   fn default() -> Self {
     Self {
       ttl: Duration::from_secs(300),
-      query_interval: Duration::from_secs(2),
+      query_interval: Duration::from_secs(3),
+      probe_interval: Duration::from_secs(2),
       ipv6: Default::default(),
       service_name: Default::default(),
       service_name_fqdn: Default::default(),
@@ -36,6 +38,13 @@ impl Config {
   pub fn query_interval(self, query_interval: Duration) -> Self {
     Self {
       query_interval,
+      ..self
+    }
+  }
+
+  pub fn probe_interval(self, probe_interval: Duration) -> Self {
+    Self {
+      probe_interval,
       ..self
     }
   }

@@ -1,4 +1,8 @@
 use super::dns;
+use hickory_proto::{
+  op::Message,
+  rr::{Name, RData},
+};
 use libp2p::core::{
   address_translation,
   multiaddr::{Multiaddr, Protocol},
@@ -6,10 +10,6 @@ use libp2p::core::{
 use libp2p::identity::PeerId;
 use std::time::Instant;
 use std::{fmt, net::SocketAddr, str, time::Duration};
-use trust_dns_proto::{
-  op::Message,
-  rr::{Name, RData},
-};
 
 /// A valid mDNS packet received by the service.
 #[derive(Debug)]
@@ -28,7 +28,7 @@ impl MdnsPacket {
     from: SocketAddr,
     service_name_fqdn: &str,
     meta_query_service_fqdn: &str,
-  ) -> Result<Option<MdnsPacket>, trust_dns_proto::error::ProtoError> {
+  ) -> Result<Option<MdnsPacket>, hickory_proto::error::ProtoError> {
     let packet = Message::from_vec(buf)?;
 
     if packet.query().is_none() {

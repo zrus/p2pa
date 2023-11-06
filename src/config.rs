@@ -1,5 +1,6 @@
 use crate::constants::*;
 use libp2p::{Multiaddr, PeerId};
+use std::time::Duration;
 
 #[derive(Debug, Builder, Default)]
 pub struct Config {
@@ -17,6 +18,10 @@ pub struct Config {
   rendezvous_ttl: Option<u64>,
   #[builder(setter(into), default = "String::new()")]
   mdns_service_name: String,
+  #[builder(setter(into), default = "Duration::from_secs(2)")]
+  mdns_probe_interval: Duration,
+  #[builder(setter(into), default = "Duration::from_secs(3)")]
+  mdns_query_interval: Duration,
   #[builder(default)]
   enable_mdns: bool,
   #[builder(default)]
@@ -56,6 +61,14 @@ impl Config {
 
   pub fn mdns_service_name(&self) -> &str {
     &self.mdns_service_name
+  }
+
+  pub fn mdns_probe_interval(&self) -> Duration {
+    self.mdns_probe_interval
+  }
+
+  pub fn mdns_query_interval(&self) -> Duration {
+    self.mdns_query_interval
   }
 
   pub fn enable_mdns(&self) -> bool {

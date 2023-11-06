@@ -613,7 +613,10 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
       let peer_id = key.public().to_peer_id();
 
       let mdns = Toggle::from(if config.enable_mdns() {
-        let mdns_cfg = mdns_bhv::Config::default().service_name(config.mdns_service_name());
+        let mdns_cfg = mdns_bhv::Config::default()
+          .service_name(config.mdns_service_name())
+          .probe_interval(config.mdns_probe_interval())
+          .query_interval(config.mdns_query_interval());
         let mdns = mdns_bhv::Behaviour::new(mdns_cfg, peer_id)?;
         Some(mdns)
       } else {
