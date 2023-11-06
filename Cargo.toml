@@ -3,6 +3,10 @@ name = "p2pa"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [dependencies.tokio]
 version = "*"
 features = ["rt", "time", "sync", "macros", "rt-multi-thread", "signal", "tracing", "io-util", "io-std", "net"] 
