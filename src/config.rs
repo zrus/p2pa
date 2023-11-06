@@ -15,7 +15,7 @@ pub struct Config {
   rendezvous_namespaces: Vec<String>,
   #[builder(setter(strip_option), default)]
   rendezvous_ttl: Option<u64>,
-  #[builder(setter(into))]
+  #[builder(setter(into), default = "String::new()")]
   mdns_service_name: String,
   #[builder(default)]
   enable_mdns: bool,
