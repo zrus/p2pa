@@ -129,14 +129,11 @@ impl NetworkBehaviour for Behaviour {
   fn on_swarm_event(&mut self, event: FromSwarm) {
     self.listen_addresses.on_swarm_event(&event);
 
-    match event {
-      FromSwarm::NewListener(_) => {
-        trace!("waking interface state because listening address changed");
-        for iface in self.iface_states.values_mut() {
-          iface.fire_timer();
-        }
+    if let FromSwarm::NewListener(_) = event {
+      trace!("waking interface state because listening address changed");
+      for iface in self.iface_states.values_mut() {
+        iface.fire_timer();
       }
-      _ => {}
     }
   }
 

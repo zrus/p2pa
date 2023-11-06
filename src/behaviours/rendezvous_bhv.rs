@@ -70,7 +70,7 @@ impl Behaviour {
     let namespace = namespace.into();
     self
       .in_progress_register
-      .insert((rdvz_node, Namespace::new(namespace.into())?));
+      .insert((rdvz_node, Namespace::new(namespace)?));
     Ok(())
   }
 

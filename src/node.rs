@@ -109,37 +109,35 @@ impl<State> Node<State> {
     );
 
     let node = Arc::clone(self);
-    _ = Box::pin(
-      tokio::spawn(async move {
-        let event_chan = node.receiver.event_chan.lock().await;
-        let Some(kill_resp) = node.receiver.kill_resp.lock().await.take() else {
-          error!("`execute` has been called on an already down node");
-          return;
-        };
-        let mut next_event = event_chan.recv().boxed();
-        let mut kill_resp = kill_resp.boxed();
-        loop {
-          match futures::future::select(next_event, kill_resp).await {
-            futures::future::Either::Left((incomming, other)) => {
-              let Ok(event) = incomming else {
-                return;
-              };
-              if let Err(e) = cb(node.clone(), event).await {
-                error!("execute handler error: {e}");
-                return;
-              }
-              kill_resp = other;
-              next_event = event_chan.recv().boxed();
-            }
-            futures::future::Either::Right(_) => {
-              node.receiver.is_killed.store(true, Ordering::Relaxed);
+    let handle = tokio::spawn(async move {
+      let event_chan = node.receiver.event_chan.lock().await;
+      let Some(kill_resp) = node.receiver.kill_resp.lock().await.take() else {
+        error!("`execute` has been called on an already down node");
+        return;
+      };
+      let mut next_event = event_chan.recv().boxed();
+      let mut kill_resp = kill_resp.boxed();
+      loop {
+        match futures::future::select(next_event, kill_resp).await {
+          futures::future::Either::Left((incomming, other)) => {
+            let Ok(event) = incomming else {
+              return;
+            };
+            if let Err(e) = cb(node.clone(), event).await {
+              error!("execute handler error: {e}");
               return;
             }
+            kill_resp = other;
+            next_event = event_chan.recv().boxed();
+          }
+          futures::future::Either::Right(_) => {
+            node.receiver.is_killed.store(true, Ordering::Relaxed);
+            return;
           }
         }
-      })
-      .map(|_| ()),
-    );
+      }
+    });
+    std::mem::forget(handle);
   }
 
   pub fn spin_up(&self) -> Ret {
@@ -298,7 +296,7 @@ impl<State> Node<State> {
     self.command_chan.send(Command::Shutdown)?;
     if let Some(kill_req) = self.receiver.kill_req.lock().await.take() {
       warn!("shutting down..");
-      if let Err(_) = kill_req.send(()) {
+      if kill_req.send(()).is_err() {
         error!("send shutdown signal failed");
       }
     }
@@ -504,32 +502,28 @@ impl NodeInner {
         }
       },
       NodeBehaviourEvent::Mdns(mdns) => {
-        match mdns {
-          mdns_bhv::Event::Discovered(peers) => {
-            let peers = peers.into_iter().map(|p| p.0).collect::<Vec<_>>();
-            self.swarm.behaviour_mut().gossip.add_explicit_peers(peers);
-          }
-          _ => {}
+        // TODO: Handle expired?
+        if let mdns_bhv::Event::Discovered(peers) = mdns {
+          let peers = peers.into_iter().map(|p| p.0).collect::<Vec<_>>();
+          self.swarm.behaviour_mut().gossip.add_explicit_peers(peers);
         }
         None
       }
       NodeBehaviourEvent::Rdvz(rdvz) => {
-        match rdvz {
-          rendezvous_bhv::Event::Discovered(discovered) => {
-            for peer in discovered {
-              let p2p_suffix = Protocol::P2p(peer.0);
-              let address_with_p2p = if !peer
-                .1
-                .ends_with(&Multiaddr::empty().with(p2p_suffix.clone()))
-              {
-                peer.1.clone().with(p2p_suffix)
-              } else {
-                peer.1.clone()
-              };
-              self.swarm.dial(address_with_p2p)?;
-            }
+        // TODO: Handle other events
+        if let rendezvous_bhv::Event::Discovered(discovered) = rdvz {
+          for peer in discovered {
+            let p2p_suffix = Protocol::P2p(peer.0);
+            let address_with_p2p = if !peer
+              .1
+              .ends_with(&Multiaddr::empty().with(p2p_suffix.clone()))
+            {
+              peer.1.clone().with(p2p_suffix)
+            } else {
+              peer.1.clone()
+            };
+            self.swarm.dial(address_with_p2p)?;
           }
-          _ => {}
         }
         None
       }
@@ -662,8 +656,8 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
         dht.set_mode(Some(kad::Mode::Server));
         let mut dht = dht_bhv::Behaviour::new(dht, NonZeroUsize::new(1).unwrap());
         for (peer, addr) in config.bootstrap_nodes() {
-          dht.add_address(peer.clone(), addr.clone());
-          dht.add_bootnodes(peer.clone(), addr.clone());
+          dht.add_address(*peer, addr.clone());
+          dht.add_bootnodes(*peer, addr.clone());
         }
         Some(dht)
       } else {

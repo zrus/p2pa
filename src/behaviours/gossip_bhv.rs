@@ -83,9 +83,7 @@ impl Behaviour {
         .gossip
         .publish(topic.clone(), contents.clone())
         .map(|_| ())
-        .map_err(|_| {
-          self.in_progress_messages.push_back((topic, contents));
-        })
+        .map_err(|_| self.in_progress_messages.push_back((topic, contents)))
         .is_err()
       {
         return false;
@@ -96,12 +94,12 @@ impl Behaviour {
 
   fn handle_event(&mut self, event: gossipsub::Event) {
     use gossipsub::Event::*;
-    match event {
-      Message { message, .. } => self.event_queue.push(Event::MsgReceived {
+    // TODO: Handle other events
+    if let Message { message, .. } = event {
+      self.event_queue.push(Event::MsgReceived {
         topic: message.topic,
         contents: message.data,
-      }),
-      _ => {}
+      });
     }
   }
 }

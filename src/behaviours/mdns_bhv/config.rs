@@ -49,7 +49,7 @@ impl Config {
     let name = if !name.is_empty() {
       f!("_{name}.")
     } else {
-      f!("")
+      String::new()
     };
     let service_name = f!("{name}_p2p._udp.local").into_bytes();
     let service_name_fqdn = f!("{name}_p2p._udp.local.");
