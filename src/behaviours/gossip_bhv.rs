@@ -48,7 +48,7 @@ impl Behaviour {
     let topic = IdentTopic::new(topic.into());
     let contents = contents.into();
     if let Err(e) = self.gossip.publish(topic.clone(), contents.clone()) {
-      error!("publish error: {e}");
+      debug!("publish error: {e}");
       if self.enable_republish {
         self.in_progress_messages.push_back((topic, contents));
       }
