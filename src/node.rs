@@ -640,14 +640,10 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
       });
 
       let gossip_cfg = gossipsub::ConfigBuilder::default()
-        // TODO: Testing purpose, remove later needed
-        .heartbeat_interval(Duration::from_secs(30))
         .validation_mode(gossipsub::ValidationMode::Strict)
-        .history_gossip(32)
-        .history_length(32)
         .mesh_outbound_min(1)
         .mesh_n_low(1)
-        .max_transmit_size(8 * 1024 * 1024)
+        .max_transmit_size(8 * 1024 * 1024) // 8MB
         .build()?;
       let gossip = gossipsub::Behaviour::new(
         gossipsub::MessageAuthenticity::Signed(key.clone()),
