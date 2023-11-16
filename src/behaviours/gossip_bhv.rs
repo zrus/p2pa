@@ -17,6 +17,7 @@ pub enum Event {
 }
 
 pub struct Behaviour {
+  local_peer_id: PeerId,
   gossip: gossipsub::Behaviour,
   in_progress_messages: VecDeque<(IdentTopic, Vec<u8>)>,
   backoff: ExponentialBackoff,
@@ -26,8 +27,13 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
-  pub fn new(behaviour: gossipsub::Behaviour, enable_republish: bool) -> Self {
+  pub fn new(
+    local_peer_id: PeerId,
+    behaviour: gossipsub::Behaviour,
+    enable_republish: bool,
+  ) -> Self {
     Self {
+      local_peer_id,
       gossip: behaviour,
       in_progress_messages: Default::default(),
       backoff: Default::default(),
@@ -95,7 +101,16 @@ impl Behaviour {
   fn handle_event(&mut self, event: gossipsub::Event) {
     use gossipsub::Event::*;
     // TODO: Handle other events
-    if let Message { message, .. } = event {
+    if let Message {
+      message,
+      propagation_source,
+      message_id,
+    } = event
+    {
+      debug!("Received message from: {propagation_source} with {message_id}");
+      if self.local_peer_id == propagation_source {
+        return;
+      }
       self.event_queue.push(Event::MsgReceived {
         topic: message.topic,
         contents: message.data,

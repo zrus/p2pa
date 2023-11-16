@@ -1,5 +1,6 @@
 use std::{
-  collections::HashSet,
+  collections::{hash_map::DefaultHasher, HashSet},
+  hash::{Hash, Hasher},
   num::{NonZeroU8, NonZeroUsize},
   str::FromStr,
   sync::{
@@ -70,6 +71,8 @@ impl<State> Node<State> {
       None => Keypair::generate_ed25519(),
     };
     let peer_id = PeerId::from_public_key(&identity.public());
+
+    info!("Local peer id: {peer_id}");
 
     let swarm = build_swarm(&identity, &config).await?;
     let mut inner = NodeInner {
@@ -640,6 +643,13 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
       });
 
       let gossip_cfg = gossipsub::ConfigBuilder::default()
+        .published_message_ids_cache_time(Duration::from_secs(300))
+        .duplicate_cache_time(Duration::from_secs(300))
+        .message_id_fn(|message| {
+          let mut s = DefaultHasher::new();
+          message.data.hash(&mut s);
+          gossipsub::MessageId::from(s.finish().to_string())
+        })
         .validation_mode(gossipsub::ValidationMode::Strict)
         .mesh_outbound_min(1)
         .mesh_n_low(1)
@@ -649,9 +659,9 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
         gossipsub::MessageAuthenticity::Signed(key.clone()),
         gossip_cfg,
       )?;
-      let gossip = gossip_bhv::Behaviour::new(gossip, config.enable_republish());
+      let gossip = gossip_bhv::Behaviour::new(peer_id, gossip, config.enable_republish());
 
-      let identify_cfg = identify::Config::new("/AumPoS/identify/1.0".to_owned(), key.public());
+      let identify_cfg = identify::Config::new("/3exp8p2p/identify/1.0".to_owned(), key.public());
       let identify = identify::Behaviour::new(identify_cfg);
 
       let dht = Toggle::from(if config.enable_dht() {
