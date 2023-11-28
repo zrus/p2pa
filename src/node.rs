@@ -618,7 +618,7 @@ async fn build_swarm(identity: &Keypair, config: &Config) -> Ret<Swarm<NodeBehav
       yamux::Config::default,
     )?
     // .with_quic()
-    .with_dns()? // TODO: Needed?
+    // .with_dns()? // TODO: Needed?
     .with_relay_client(noise::Config::new, yamux::Config::default)?
     .with_behaviour(move |key, relay| {
       let peer_id = key.public().to_peer_id();
